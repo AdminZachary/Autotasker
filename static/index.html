@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AutoTasker OS - Spatial & Premium</title>
+
+<!-- Nothing 风格的点阵与等宽字体 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+/* Nothing 浅色系基础色调 */
+--bg-base: #f4f4f5;
+--ink: #09090b;
+--muted: #71717a;
+--accent-red: #ea191c;
+--accent-red-glow: rgba(234, 25, 28, 0.15);
+--accent-dark: #000000;
+
+/* Apple Liquid Glass 材质 */
+--glass-bg: rgba(255, 255, 255, 0.55);
+--glass-border: rgba(0, 0, 0, 0.05);
+--glass-highlight: rgba(255, 255, 255, 0.8);
+--line: rgba(0, 0, 0, 0.08);
+
+/* 阴影与圆角 */
+--shadow-heavy: 0 24px 48px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.02);
+--radius: 28px;
+--radius-md: 20px;
+--radius-sm: 12px;
+
+/* 字体系统 */
+--font-sans: "Inter", "SF Pro Display", -apple-system, sans-serif;
+--font-mono: "Space Mono", "Courier New", monospace;
+--font-dot: "DotGothic16", monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { color-scheme: light; }
+body {
+margin: 0;
+min-height: 100vh;
+overflow-x: hidden;
+font-family: var(--font-sans);
+color: var(--ink);
+background-color: var(--bg-base);
+-webkit-font-smoothing: antialiased;
+}
+
+/* 蓝图感底层点阵 */
+body::before {
+content: ""; position: fixed; inset: 0;
+background-image: radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+background-size: 24px 24px;
+pointer-events: none; z-index: -2;
+}
+
+/* 弥散光影 */
+.ambient { position: fixed; pointer-events: none; z-index: -1; border-radius: 999px; filter: blur(80px); opacity: 0.7; }
+.ambient-a { top: -10vh; left: -5vw; width: 45rem; height: 45rem; background: radial-gradient(circle, rgba(255, 255, 255, 1), transparent 70%); }
+.ambient-b { right: -10vw; bottom: 5vh; width: 40rem; height: 40rem; background: radial-gradient(circle, rgba(255, 255, 255, 0.9), transparent 70%); }
+.ambient-c { top: 40vh; right: 20vw; width: 25rem; height: 25rem; background: radial-gradient(circle, rgba(234, 25, 28, 0.05), transparent 60%); }
+
+/* === 整体应用布局 (App Layout) === */
+.app-layout {
+display: flex;
+min-height: 100vh;
+padding: 24px;
+gap: 32px;
+max-width: 1600px;
+margin: 0 auto;
+}
+
+/* === 悬浮导航坞 (Glass Dock) === */
+.nav-dock {
+position: relative;
+z-index: 100;
+display: flex;
+flex-direction: column;
+gap: 12px;
+padding: 16px;
+width: 88px;
+border-radius: var(--radius);
+background: var(--glass-bg);
+border: 1px solid var(--glass-border);
+box-shadow: inset 0 1px 1px var(--glass-highlight), var(--shadow-heavy);
+backdrop-filter: blur(40px) saturate(160%);
+-webkit-backdrop-filter: blur(40px) saturate(160%);
+height: calc(100vh - 48px);
+position: sticky;
+top: 24px;
+}
+
+.nav-item {
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+gap: 8px;
+padding: 16px 8px;
+border-radius: var(--radius-sm);
+border: none;
+background: transparent;
+color: var(--muted);
+cursor: pointer;
+transition: all 200ms ease;
+position: relative;
+}
+
+.nav-item svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.nav-item span { font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+
+.nav-item:hover { color: var(--ink); background: rgba(0,0,0,0.03); }
+.nav-item.active { color: var(--ink); background: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
+.nav-item.active svg { transform: scale(1.1); }
+
+/* Nothing 红点指示器 */
+.nav-item.active::after {
+content: ""; position: absolute; left: -16px; top: 50%; transform: translateY(-50%);
+width: 4px; height: 16px; border-radius: 0 4px 4px 0; background: var(--accent-red);
+}
+.nav-item.has-timer::before {
+content: ""; position: absolute; top: 12px; right: 16px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); animation: pulseRed 2s infinite;
+}
+
+@keyframes pulseRed { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+
+/* === 视图容器 (View Container) === */
+.view-container { flex: 1; position: relative; min-width: 0; }
+
+/* 修复：严格控制视图的显示与隐藏，并将动画挂载到 active 上以确保每次切换都触发 */
+.view {
+display: none;
+}
+.view.active {
+display: block;
+animation: viewFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes viewFadeIn {
+0% { opacity: 0; transform: translateY(12px); }
+100% { opacity: 1; transform: translateY(0); }
+}
+
+/* === 通用组件 === */
+.glass {
+background: var(--glass-bg);
+border: 1px solid var(--glass-border);
+border-radius: var(--radius);
+box-shadow: inset 0 1px 1px var(--glass-highlight), var(--shadow-heavy);
+backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+padding: 28px;
+transition: transform 300ms ease;
+}
+
+.section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.section-head h2 { margin: 0; font-weight: 700; font-size: 1.5rem; letter-spacing: -0.03em; }
+.tag, .eyebrow { font-family: var(--font-mono); font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.15em; }
+
+/* 表单体系 */
+.stacked-form { display: grid; gap: 16px; }
+label { display: grid; gap: 8px; font-size: 12px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; }
+input, textarea, select, .task-input {
+width: 100%; appearance: none; border: 1px solid var(--line); border-radius: var(--radius-sm);
+padding: 14px 16px; font-family: var(--font-sans); font-size: 14px; color: var(--ink);
+background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 2px 4px rgba(0,0,0,0.01); outline: none; transition: all 200ms;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--ink); background: #ffffff; box-shadow: 0 0 0 3px rgba(0,0,0,0.04); }
+textarea { resize: vertical; }
+
+/* 按钮系统 */
+.btn {
+display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+border: 1px solid transparent; border-radius: var(--radius-sm); padding: 12px 24px;
+font-family: var(--font-mono); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+cursor: pointer; transition: all 200ms;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary { color: #fff; background: var(--accent-dark); box-shadow: 0 8px 16px rgba(0,0,0,0.15); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-red); box-shadow: 0 8px 20px var(--accent-red-glow); }
+.btn-secondary { color: var(--ink); background: rgba(255, 255, 255, 0.9); border-color: var(--line); box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+.btn-secondary:hover:not(:disabled) { background: #ffffff; border-color: rgba(0,0,0,0.15); }
+.btn-ghost { color: var(--muted); background: transparent; }
+.btn-ghost:hover:not(:disabled) { color: var(--ink); background: rgba(0,0,0,0.05); }
+
+.form-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.form-actions.dual .btn { flex: 1; }
+
+/* 提示文本 */
+.feedback, .inline-message, .review { color: var(--muted); line-height: 1.6; font-size: 14px; margin-top: 12px; }
+.empty { display: none; }
+.hidden { display: none !important; }
+.feedback:not(.empty) { padding: 16px; background: rgba(0,0,0,0.03); border-radius: var(--radius-sm); }
+
+/* === 各视图专属样式 === */
+
+/* Dashboard (Plan) */
+.dashboard-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; }
+.hero-title { font-family: var(--font-dot); font-size: clamp(2.4rem, 4vw, 3.6rem); line-height: 1.1; margin: 0 0 8px 0; }
+.hero-subtitle { color: var(--muted); font-size: 16px; max-width: 80%; line-height: 1.5; margin-bottom: 24px; }
+
+.stats-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.metric { background: rgba(255,255,255,0.5); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--line); }
+.metric span { font-family: var(--font-mono); color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.metric strong { display: block; margin-top: 8px; font-family: var(--font-dot); font-size: 2.2rem; line-height: 1; }
+
+.trend-wrap { margin-top: 16px; padding: 24px; background: rgba(255,255,255,0.4); border-radius: var(--radius-md); border: 1px solid var(--line); }
+.trend-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; align-items: end; height: 100px; margin-top: 24px; }
+.trend-bar { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.trend-bar-fill { width: 100%; background: var(--ink); border-radius: 4px; transition: height 700ms ease; }
+.trend-bar span { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+.draft-list { display: grid; gap: 16px; }
+.draft-card { background: rgba(255,255,255,0.6); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--line); }
+.draft-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+/* Kanban (Board) */
+/* 修复：将原本挂在 .view 上的 flex 剥离，确保 .view 能够绝对隐藏 */
+.kanban-wrapper { height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.kanban-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; flex: 1; min-height: 0; }
+.kanban-column { background: rgba(245, 245, 247, 0.4); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--line); display: flex; flex-direction: column; overflow-y: auto; }
+.column-body { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 100px; padding-bottom: 20px; }
+.column-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.status-chip { background: #fff; padding: 4px 12px; border-radius: 99px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+
+.task-card { background: #ffffff; padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--line); cursor: grab; transition: all 200ms; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
+.task-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.06); border-color: rgba(0,0,0,0.15); }
+.task-card h4 { margin: 0 0 12px 0; font-size: 16px; font-weight: 600; line-height: 1.4; }
+.task-meta { display: flex; gap: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); flex-wrap: wrap; margin-bottom: 12px; }
+.task-badge { padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,0.04); }
+.task-badge.overdue { background: #ffeeee; color: var(--accent-red); }
+.task-actions { display: flex; gap: 8px; }
+.task-actions .btn { padding: 6px 12px; font-size: 10px; }
+
+/* Focus (Timer) */
+.focus-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; align-items: start; }
+.timer-area { text-align: center; padding: 60px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 500px; }
+#timer-value { font-family: var(--font-dot); font-size: clamp(6rem, 12vw, 10rem); line-height: 1; margin: 24px 0; transition: color 300ms; }
+.is-running #timer-value { color: var(--accent-red); }
+#timer-task-name { font-size: 18px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.log-list { display: grid; gap: 12px; }
+.log-item { background: rgba(255,255,255,0.6); padding: 16px; border-radius: var(--radius-sm); border: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+.log-item strong { font-size: 14px; font-weight: 600; }
+.log-meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); display: flex; gap: 12px; }
+
+/* Settings */
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+
+/* 响应式 */
+@media (max-width: 1024px) {
+.app-layout { flex-direction: column; padding: 16px; gap: 16px; }
+.nav-dock { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); flex-direction: row; width: auto; height: auto; padding: 12px 24px; z-index: 1000; border-radius: 99px; }
+.nav-item { padding: 8px 16px; }
+.nav-item span { display: none; }
+.nav-item.active::after { left: 50%; bottom: -4px; top: auto; width: 16px; height: 4px; border-radius: 4px 4px 0 0; transform: translateX(-50%); }
+.dashboard-grid, .focus-grid, .settings-grid { grid-template-columns: 1fr; }
+.kanban-board { display: flex; flex-direction: column; gap: 16px; }
+.kanban-column { min-height: 300px; }
+.kanban-wrapper { height: auto; padding-bottom: 80px; }
+.view-container { padding-bottom: 80px; } /* 为移动端 dock 留出空间 */
+}
+</style>
+</head>
+<body>
+<!-- 沉浸式环境光晕 -->
+<div class="ambient ambient-a"></div>
+<div class="ambient ambient-b"></div>
+<div class="ambient ambient-c"></div>
+
+<main class="app-layout app-shell">
+<!-- 侧边导航坞 -->
+<nav class="nav-dock">
+<button class="nav-item active" data-view="dashboard">
+<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+<span>Plan</span>
+</button>
+<button class="nav-item" data-view="kanban">
+<svg viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"></path><path d="M19 3h-4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"></path></svg>
+<span>Board</span>
+</button>
+<button class="nav-item" id="nav-focus" data-view="focus">
+<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+<span>Focus</span>
+</button>
+<button class="nav-item" data-view="settings">
+<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+<span>Config</span>
+</button>
+</nav>
+
+<!-- 视图容器 -->
+<div class="view-container">
+
+<!-- View 1: Dashboard (Plan & Review) -->
+<div id="view-dashboard" class="view active">
+<div class="glass" style="margin-bottom: 24px;">
+<div class="brand-topline" style="margin-bottom: 16px;">
+<span class="eyebrow">Workspace</span>
+<span class="status-chip" id="login-status-chip">Offline</span>
+</div>
+<h1 class="hero-title">AutoTasker</h1>
+<p class="hero-subtitle">智能目标解析与空间看板系统。在此输入你的宏伟蓝图，AI 将为你规划拆解为可执行的时间线。</p>
+</div>
+
+<div class="dashboard-grid">
+<div style="display: flex; flex-direction: column; gap: 24px;">
+<section class="glass">
+<div class="section-head">
+<span class="tag">AI Engine</span>
+<h2>构建目标</h2>
+</div>
+<form id="goal-form" class="stacked-form">
+<label>
+<span>Natural Language Goal</span>
+<textarea id="goal-text" rows="5" placeholder="例如：在下周五前完成市场调研报告，切分为不超过 2 小时的子任务，午休期间不安排任务。"></textarea>
+</label>
+<button type="submit" class="btn btn-primary">Generate Strategy</button>
+</form>
+<p id="goal-feedback" class="feedback empty"></p>
+</section>
+
+<section class="glass">
+<div class="section-head">
+<span class="tag">Buffer</span>
+<h2>草案确认区</h2>
+</div>
+<div id="draft-list" class="draft-list">
+<p class="empty" style="font-size: 14px;">生成草案后，可在此微调任务与时间安排。</p>
+</div>
+<div class="form-actions" style="margin-top:20px;">
+<button id="confirm-draft" class="btn btn-primary" disabled>Sync to Board</button>
+<button id="clear-draft" class="btn btn-ghost" disabled>Clear Buffer</button>
+</div>
+</section>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 24px;">
+<section class="glass">
+<div class="section-head">
+<span class="tag">Analytics</span>
+<h2>执行复盘</h2>
+</div>
+<div id="stats-cards" class="stats-cards">
+<article class="metric"><span>Tasks</span><strong>0</strong></article>
+<article class="metric"><span>Rate</span><strong>0%</strong></article>
+<article class="metric"><span>Overdue</span><strong>0</strong></article>
+<article class="metric"><span>Focus(m)</span><strong>0</strong></article>
+</div>
+<div class="trend-wrap">
+<div class="section-head" style="margin-bottom: 0;">
+<h3 style="margin:0;font-size:14px;font-weight:600;">近 7 天趋势</h3>
+<span class="tag" id="trend-caption" style="text-transform:none;letter-spacing:0;">No Data</span>
+</div>
+<div id="trend-bars" class="trend-bars"></div>
+</div>
+<div class="form-actions" style="margin-top:24px;">
+<button id="generate-review" class="btn btn-secondary" style="width: 100%;">Generate AI Review</button>
+</div>
+<p id="review-text" class="review empty"></p>
+</section>
+</div>
+</div>
+</div>
+
+<!-- View 2: Kanban (Board) -->
+<div id="view-kanban" class="view">
+<!-- 修复：Kanban wrapper 负责 Flex 布局，不再影响外部显示状态 -->
+<div class="kanban-wrapper">
+<div class="glass" style="flex: 1; display: flex; flex-direction: column;">
+<div class="section-head">
+<span class="tag">Workflow</span>
+<h2>任务看板</h2>
+</div>
+<div class="kanban-board">
+<div class="kanban-column" data-status="todo">
+<div class="column-head">
+<h3 style="margin:0;font-size:16px;">To Do</h3>
+<span class="status-chip" id="todo-count">0</span>
+</div>
+<div class="column-body" id="todo-column"></div>
+</div>
+<div class="kanban-column" data-status="in_progress">
+<div class="column-head">
+<h3 style="margin:0;font-size:16px;">Doing</h3>
+<span class="status-chip" id="progress-count">0</span>
+</div>
+<div class="column-body" id="progress-column"></div>
+</div>
+<div class="kanban-column" data-status="done">
+<div class="column-head">
+<h3 style="margin:0;font-size:16px;">Done</h3>
+<span class="status-chip" id="done-count">0</span>
+</div>
+<div class="column-body" id="done-column"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- View 3: Focus (Timer) -->
+<div id="view-focus" class="view">
+<div class="focus-grid">
+<section class="glass timer-area" id="timer-card-el">
+<span class="tag" style="margin-bottom: 24px;">Zen Mode</span>
+<p id="timer-task-name">Ready to Focus</p>
+<strong id="timer-value">25:00</strong>
+<p id="timer-status" class="timer-status" style="margin-bottom: 32px;">请在右侧选择任务以开始计时。</p>
+<div class="form-actions dual" style="width: 100%; max-width: 400px;">
+<button id="pomodoro-pause" type="button" class="btn btn-secondary" disabled>Pause</button>
+<button id="pomodoro-done" type="button" class="btn btn-primary" disabled>Complete</button>
+<button id="pomodoro-stop" type="button" class="btn btn-ghost" disabled>Stop</button>
+</div>
+</section>
+
+<div style="display: flex; flex-direction: column; gap: 24px;">
+<section class="glass">
+<div class="section-head">
+<span class="tag">Action</span>
+<h2>启动专注</h2>
+</div>
+<form id="pomodoro-form" class="stacked-form">
+<label>
+<span>Target Task</span>
+<select id="pomodoro-task"></select>
+</label>
+<label>
+<span>Duration (Minutes)</span>
+<input id="pomodoro-minutes" type="number" min="15" max="120" value="25" />
+</label>
+<button type="submit" class="btn btn-primary" style="margin-top: 8px;">Ignite Focus</button>
+</form>
+</section>
+
+<section class="glass">
+<div class="section-head">
+<span class="tag">History</span>
+<h2>今日记录</h2>
+</div>
+<div id="log-list" class="log-list">
+<p class="empty" style="font-size: 14px;">暂无专注记录。</p>
+</div>
+</section>
+</div>
+</div>
+</div>
+
+<!-- View 4: Settings -->
+<div id="view-settings" class="view">
+<div class="settings-grid">
+
+<section id="auth-panel" class="glass">
+<div class="section-head">
+<span class="tag">Account</span>
+<h2>身份验证</h2>
+</div>
+<form id="auth-form" class="stacked-form">
+<label><span>Username</span><input id="username" type="text" placeholder="e.g. admin" required /></label>
+<label><span>Password</span><input id="password" type="password" placeholder="At least 6 chars" required /></label>
+<div class="form-actions dual">
+<button type="submit" data-mode="login" class="btn btn-primary">Login</button>
+<button type="submit" data-mode="register" class="btn btn-secondary">Register</button>
+</div>
+</form>
+<p id="auth-message" class="inline-message"></p>
+</section>
+
+<section id="profile-card" class="glass hidden" style="grid-column: 1;">
+<div class="section-head">
+<span class="tag">Profile</span>
+<h2>用户偏好</h2>
+</div>
+<div style="margin-bottom: 24px;">
+<strong id="profile-name" style="font-size:18px; display:block;"></strong>
+<span id="profile-hint" style="color:var(--muted); font-size:14px;"></span>
+</div>
+<form id="preferences-form" class="stacked-form">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+<label><span>Focus Min</span><input id="focus-minutes" type="number" min="15" max="90" /></label>
+<label><span>Break Min</span><input id="break-minutes" type="number" min="3" max="30" /></label>
+</div>
+<label><span>Quiet Hours (Rest)</span><input id="quiet-hours" type="text" placeholder="12:00-14:00" /></label>
+<button type="submit" class="btn btn-secondary" style="margin-top: 8px;">Save Preferences</button>
+</form>
+</section>
+
+<section class="glass">
+<div class="section-head">
+<span class="tag">Intelligence</span>
+<h2>AI 模型配置</h2>
+</div>
+<p style="font-size: 14px; color: var(--muted); margin-bottom: 20px;">
+秘钥仅保存在当前浏览器的 localStorage 中，绝不上传服务器。
+</p>
+<form id="ai-form" class="stacked-form">
+<label>
+<span>Provider</span>
+<select id="ai-provider">
+<option value="openai">OpenAI</option>
+<option value="azure_openai">Azure OpenAI</option>
+<option value="deepseek">DeepSeek</option>
+<option value="qwen">Qwen</option>
+<option value="glm">GLM (智谱)</option>
+<option value="gemini">Gemini</option>
+<option value="custom_compatible">Custom Compatible</option>
+</select>
+</label>
+<label><span>Model Name</span><input id="ai-model" type="text" placeholder="e.g. gpt-4o / deepseek-chat" /></label>
+<label><span>Base URL</span><input id="ai-base-url" type="text" placeholder="API Endpoint" /></label>
+<label><span>API Key</span><input id="ai-api-key" type="password" placeholder="sk-..." /></label>
+<button type="submit" class="btn btn-secondary" style="margin-top: 8px;">Save Keys Locally</button>
+</form>
+</section>
+
+</div>
+</div>
+
+</div>
+</main>
+
+<!-- 交互逻辑 -->
+<script src="/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+.env
+.DS_Store
+.venv/
+__pycache__/
+app/__pycache__/
+app/services/__pycache__/
+*.pyc
+*.pyo
+*.zip
+data/
+*.docx
