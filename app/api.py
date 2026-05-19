@@ -15,6 +15,8 @@ from app.schemas import (
     AuthResponse,
     BootstrapResponse,
     GoalAnalyzeRequest,
+    GoalDiscussRequest,
+    GoalDiscussResponse,
     GoalConfirmRequest,
     HealthResponse,
     PomodoroFinishRequest,
@@ -28,9 +30,9 @@ from app.schemas import (
     UserOut,
 )
 from app.security import create_access_token, hash_password, verify_password
-from app.services.ai import PROVIDER_PRESETS, generate_goal_plan, generate_review
+from app.services.ai import PROVIDER_PRESETS, generate_goal_discussion, generate_goal_plan_with_profile, generate_review
 from app.services.integrations import database_health, resolve_ai_config
-from app.services.metrics import get_stats, serialize_task
+from app.services.metrics import get_stats, get_user_profile, serialize_task
 
 
 router = APIRouter(prefix="/api")
@@ -128,6 +130,7 @@ def bootstrap(current_user: User = Depends(get_current_user), db: Session = Depe
         user=UserOut.model_validate(current_user),
         tasks=[serialize_task(task) for task in tasks],
         stats=get_stats(db, current_user.id),
+        user_profile=get_user_profile(db, current_user.id),
         recent_logs=[dict(row._mapping) for row in recent_logs],
         provider_presets=PROVIDER_PRESETS,
     )
@@ -152,15 +155,18 @@ def update_preferences(
 def analyze_goal(
     payload: GoalAnalyzeRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     try:
         ai_config = resolve_ai_config(payload.ai_config)
-        result = generate_goal_plan(
+        profile = get_user_profile(db, current_user.id)
+        result = generate_goal_plan_with_profile(
             ai_config,
             payload.goal_text.strip(),
             current_user.focus_minutes,
             current_user.break_minutes,
             current_user.quiet_hours,
+            profile["summary"],
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -169,6 +175,38 @@ def analyze_goal(
         "provider": ai_config.provider,
         "model": ai_config.model,
     }
+
+
+@router.post("/goals/discuss", response_model=GoalDiscussResponse)
+def discuss_goal(
+    payload: GoalDiscussRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> GoalDiscussResponse:
+    try:
+        ai_config = resolve_ai_config(payload.ai_config)
+        profile = get_user_profile(db, current_user.id)
+        result = generate_goal_discussion(
+            ai_config,
+            payload.goal_text.strip(),
+            payload.current_plan,
+            payload.conversation,
+            payload.user_message.strip(),
+            payload.actions,
+            current_user.focus_minutes,
+            current_user.break_minutes,
+            current_user.quiet_hours,
+            profile["summary"],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return GoalDiscussResponse(
+        assistant_message=result.assistant_message,
+        updated_plan=result.updated_plan,
+        version=payload.version + 1,
+        provider=ai_config.provider,
+        model=ai_config.model,
+    )
 
 
 @router.post("/goals/confirm", status_code=status.HTTP_201_CREATED)

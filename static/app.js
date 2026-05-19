@@ -5,17 +5,121 @@ const defaultAiSettings = {
   api_key: "",
 };
 
+const stateHelpers = window.AutoTaskerStateHelpers || {};
+const safeJsonParse =
+  stateHelpers.safeJsonParse ||
+  function safeJsonParseFallback(raw, fallback) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
+  };
+const createVersionEntry =
+  stateHelpers.createVersionEntry ||
+  function createVersionEntryFallback(version, assistantMessage, draft) {
+    return {
+      version,
+      assistant_message: assistantMessage,
+      task_count: draft.length,
+      updated_at: new Date().toISOString(),
+    };
+  };
+const readDraftWorkspace =
+  stateHelpers.readDraftWorkspace ||
+  function readDraftWorkspaceFallback(storage) {
+    return {
+      draft: safeJsonParse(storage.getItem("autotasker-draft") || "[]", []),
+      draftGoalText: storage.getItem("autotasker-draft-goal") || "",
+      draftFeedback: storage.getItem("autotasker-draft-feedback") || "",
+      draftConversation: safeJsonParse(storage.getItem("autotasker-draft-conversation") || "[]", []),
+      draftVersion: Number(storage.getItem("autotasker-draft-version") || "0"),
+      draftVersionHistory: safeJsonParse(storage.getItem("autotasker-draft-versions") || "[]", []),
+    };
+  };
+const persistDraftWorkspaceState =
+  stateHelpers.persistDraftWorkspaceState ||
+  function persistDraftWorkspaceStateFallback(storage, workspace) {
+    storage.setItem("autotasker-draft", JSON.stringify(workspace.draft || []));
+    storage.setItem("autotasker-draft-goal", workspace.draftGoalText || "");
+    storage.setItem("autotasker-draft-feedback", workspace.draftFeedback || "");
+    storage.setItem("autotasker-draft-conversation", JSON.stringify(workspace.draftConversation || []));
+    storage.setItem("autotasker-draft-version", String(workspace.draftVersion || 0));
+    storage.setItem("autotasker-draft-versions", JSON.stringify(workspace.draftVersionHistory || []));
+  };
+const clearDraftWorkspaceState =
+  stateHelpers.clearDraftWorkspaceState ||
+  function clearDraftWorkspaceStateFallback(storage) {
+    storage.removeItem("autotasker-draft");
+    storage.removeItem("autotasker-draft-goal");
+    storage.removeItem("autotasker-draft-feedback");
+    storage.removeItem("autotasker-draft-conversation");
+    storage.removeItem("autotasker-draft-version");
+    storage.removeItem("autotasker-draft-versions");
+  };
+const buildFallbackUserText =
+  stateHelpers.buildFallbackUserText ||
+  function buildFallbackUserTextFallback(actions, labels) {
+    return (actions || []).map((item) => `[快捷操作] ${labels[item] || item}`).join("，");
+  };
+const applyDiscussionResult =
+  stateHelpers.applyDiscussionResult ||
+  function applyDiscussionResultFallback(workspace, result, options) {
+    const normalizedMessage = String(options?.message || "").trim();
+    const fallbackUserText = buildFallbackUserText(options?.actions || [], options?.quickActionLabels || {});
+    const nextConversation = Array.isArray(workspace?.draftConversation) ? [...workspace.draftConversation] : [];
+
+    if (normalizedMessage || fallbackUserText) {
+      nextConversation.push({
+        role: "user",
+        content: normalizedMessage || fallbackUserText,
+      });
+    }
+
+    nextConversation.push({
+      role: "assistant",
+      content: result.assistant_message,
+    });
+
+    const nextDraft = Array.isArray(result.updated_plan) ? [...result.updated_plan] : [];
+    const nextVersion = Number(result.version || Math.max(Number(workspace?.draftVersion || 0) + 1, 1));
+    const nextHistory = Array.isArray(workspace?.draftVersionHistory) ? [...workspace.draftVersionHistory] : [];
+    nextHistory.push(createVersionEntry(nextVersion, result.assistant_message, nextDraft));
+
+    return {
+      draft: nextDraft,
+      draftFeedback: result.assistant_message,
+      draftConversation: nextConversation,
+      draftVersion: nextVersion,
+      draftVersionHistory: nextHistory,
+    };
+  };
+
+const quickActionLabels = {
+  split_tasks: "拆小任务",
+  compress_schedule: "压缩周期",
+  delay_one_day: "推迟一天",
+  avoid_quiet_hours: "避开安静时段",
+  raise_priority: "提高优先级",
+};
+
+const initialDraftWorkspace = readDraftWorkspace(window.localStorage);
+
 const state = {
   token: localStorage.getItem("autotasker-token") || "",
   user: null,
   tasks: [],
   stats: null,
-  draft: JSON.parse(localStorage.getItem("autotasker-draft") || "[]"),
-  draftGoalText: localStorage.getItem("autotasker-draft-goal") || "",
-  draftFeedback: localStorage.getItem("autotasker-draft-feedback") || "",
+  userProfile: null,
+  draft: initialDraftWorkspace.draft,
+  draftGoalText: initialDraftWorkspace.draftGoalText,
+  draftFeedback: initialDraftWorkspace.draftFeedback,
+  draftConversation: initialDraftWorkspace.draftConversation,
+  draftVersion: initialDraftWorkspace.draftVersion,
+  draftVersionHistory: initialDraftWorkspace.draftVersionHistory,
   recentLogs: [],
-  timer: JSON.parse(localStorage.getItem("autotasker-timer") || "null"),
-  aiSettings: { ...defaultAiSettings, ...JSON.parse(localStorage.getItem("autotasker-ai-settings") || "{}") },
+  timer: safeJsonParse(localStorage.getItem("autotasker-timer") || "null", null),
+  aiSettings: { ...defaultAiSettings, ...safeJsonParse(localStorage.getItem("autotasker-ai-settings") || "{}", {}) },
   providerPresets: {
     openai: "https://api.openai.com/v1",
     azure_openai: "",
@@ -53,7 +157,12 @@ const els = {
   goalForm: document.getElementById("goal-form"),
   goalText: document.getElementById("goal-text"),
   goalFeedback: document.getElementById("goal-feedback"),
+  discussionVersion: document.getElementById("discussion-version"),
+  discussionList: document.getElementById("discussion-list"),
+  discussionForm: document.getElementById("discussion-form"),
+  discussionInput: document.getElementById("discussion-input"),
   draftList: document.getElementById("draft-list"),
+  versionHistory: document.getElementById("version-history"),
   confirmDraft: document.getElementById("confirm-draft"),
   clearDraft: document.getElementById("clear-draft"),
   todoColumn: document.getElementById("todo-column"),
@@ -78,6 +187,13 @@ const els = {
   reviewText: document.getElementById("review-text"),
   logList: document.getElementById("log-list"),
   generateReview: document.getElementById("generate-review"),
+  traitSummary: document.getElementById("trait-summary"),
+  traitPeakPeriod: document.getElementById("trait-peak-period"),
+  traitFocusWindow: document.getElementById("trait-focus-window"),
+  traitTaskStyle: document.getElementById("trait-task-style"),
+  traitDiscipline: document.getElementById("trait-discipline"),
+  periodBreakdown: document.getElementById("period-breakdown"),
+  quickActionButtons: Array.from(document.querySelectorAll("[data-quick-action]")),
 };
 
 let countdownTicker = null;
@@ -88,16 +204,9 @@ const visualState = {
   scrollTicking: false,
 };
 
-const MOTION_CARD_SELECTOR = [
-  ".glass",
-  ".task-card",
-  ".draft-card",
-  ".metric",
-  ".log-item",
-  ".signal-card",
-  ".trend-wrap",
-  ".timer-card",
-].join(", ");
+const MOTION_CARD_SELECTOR = [".glass", ".task-card", ".draft-card", ".metric", ".log-item", ".trait-card", ".period-card"].join(
+  ", "
+);
 
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -113,28 +222,29 @@ async function api(path, options = {}) {
 }
 
 function flash(message, isError = false) {
+  if (!els.authMessage) return;
   els.authMessage.textContent = message;
   els.authMessage.style.color = isError ? "#b5542c" : "#2c7a52";
 }
 
 function setGoalFeedback(text, isMuted = false) {
+  if (!els.goalFeedback) return;
   els.goalFeedback.textContent = text;
-  els.goalFeedback.classList.toggle("empty", isMuted);
+  els.goalFeedback.classList.toggle("empty", isMuted || !text);
 }
 
-function persistDraft() {
-  localStorage.setItem("autotasker-draft", JSON.stringify(state.draft));
-  localStorage.setItem("autotasker-draft-goal", state.draftGoalText || "");
-  localStorage.setItem("autotasker-draft-feedback", state.draftFeedback || "");
+function persistDraftWorkspace() {
+  persistDraftWorkspaceState(localStorage, state);
 }
 
 function clearDraftState() {
   state.draft = [];
   state.draftGoalText = "";
   state.draftFeedback = "";
-  localStorage.removeItem("autotasker-draft");
-  localStorage.removeItem("autotasker-draft-goal");
-  localStorage.removeItem("autotasker-draft-feedback");
+  state.draftConversation = [];
+  state.draftVersion = 0;
+  state.draftVersionHistory = [];
+  clearDraftWorkspaceState(localStorage);
 }
 
 function persistTimer() {
@@ -165,6 +275,32 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   })}`;
+}
+
+function formatShortDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })} ${date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function toInputDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function getAiConfig() {
@@ -220,13 +356,64 @@ function renderAuth() {
   hydrateAiForm();
 }
 
-function renderDraft() {
-  if (!state.draft.length) {
-    els.draftList.innerHTML = `<p class="empty">生成草案后，你可以在这里调整任务标题、时间和时长。</p>`;
-    els.confirmDraft.disabled = true;
-    els.clearDraft.disabled = true;
+function renderDiscussion() {
+  const hasDraft = state.draft.length > 0;
+  els.discussionVersion.textContent = `v${state.draftVersion || 0}`;
+  els.discussionInput.disabled = !hasDraft;
+  els.discussionForm.querySelector("button").disabled = !hasDraft;
+  els.quickActionButtons.forEach((button) => {
+    button.disabled = !hasDraft;
+  });
+
+  if (!state.draftConversation.length) {
+    els.discussionList.innerHTML =
+      '<p class="empty" style="display:block;font-size: 14px;">生成首版草案后，你可以继续像聊天一样让 AI 重排、拆分、压缩或解释安排。</p>';
     return;
   }
+
+  els.discussionList.innerHTML = state.draftConversation
+    .map(
+      (item) => `
+      <article class="discussion-bubble ${item.role}">
+        <small>${item.role === "user" ? "User" : "Assistant"}</small>
+        <div>${escapeHtml(item.content).replaceAll("\n", "<br />")}</div>
+      </article>
+    `
+    )
+    .join("");
+  els.discussionList.scrollTop = els.discussionList.scrollHeight;
+}
+
+function renderVersionHistory() {
+  if (!state.draftVersionHistory.length) {
+    els.versionHistory.innerHTML = '<p class="empty" style="display:block;font-size:14px;">讨论版本历史会显示在这里。</p>';
+    return;
+  }
+
+  els.versionHistory.innerHTML = [...state.draftVersionHistory]
+    .reverse()
+    .map(
+      (item) => `
+      <article class="version-item">
+        <small>${formatShortDate(item.updated_at) || "刚刚更新"}</small>
+        <strong>v${item.version} · ${item.task_count} 个任务</strong>
+        <div>${escapeHtml(item.assistant_message)}</div>
+      </article>
+    `
+    )
+    .join("");
+}
+
+function renderDraft() {
+  const hasDraft = state.draft.length > 0;
+  if (!hasDraft) {
+    els.draftList.innerHTML = '<p class="empty" style="display:block;font-size: 14px;">生成草案后，可在此微调任务与时间安排。</p>';
+    els.confirmDraft.disabled = true;
+    els.clearDraft.disabled = true;
+    renderVersionHistory();
+    return;
+  }
+
   els.confirmDraft.disabled = false;
   els.clearDraft.disabled = false;
   els.draftList.innerHTML = state.draft
@@ -259,23 +446,11 @@ function renderDraft() {
     `
     )
     .join("");
-}
-
-function renderKanban() {
-  const groups = { todo: [], in_progress: [], done: [] };
-  state.tasks.forEach((task) => groups[task.status].push(task));
-  els.todoCount.textContent = groups.todo.length;
-  els.progressCount.textContent = groups.in_progress.length;
-  els.doneCount.textContent = groups.done.length;
-  els.todoColumn.innerHTML = renderTaskCards(groups.todo);
-  els.progressColumn.innerHTML = renderTaskCards(groups.in_progress);
-  els.doneColumn.innerHTML = renderTaskCards(groups.done);
-  setupDragAndDrop();
-  renderPomodoroTasks();
+  renderVersionHistory();
 }
 
 function renderTaskCards(tasks) {
-  if (!tasks.length) return `<p class="empty">这里暂时没有任务。</p>`;
+  if (!tasks.length) return '<p class="empty">这里暂时没有任务。</p>';
   return tasks
     .map(
       (task) => `
@@ -283,8 +458,8 @@ function renderTaskCards(tasks) {
         <div class="task-meta">
           <span class="task-badge">${task.status === "todo" ? "待办" : task.status === "in_progress" ? "进行中" : "已完成"}</span>
           <span class="task-badge focus">${task.estimated_minutes} 分钟</span>
-          ${task.overdue ? `<span class="task-badge overdue">已逾期</span>` : ""}
-          ${task.status === "done" ? `<span class="task-badge done">完成</span>` : ""}
+          ${task.overdue ? '<span class="task-badge overdue">已逾期</span>' : ""}
+          ${task.status === "done" ? '<span class="task-badge done">完成</span>' : ""}
         </div>
         <div>
           <h4>${escapeHtml(task.title)}</h4>
@@ -310,7 +485,20 @@ function renderPomodoroTasks() {
   const available = state.tasks.filter((task) => task.status !== "done");
   els.pomodoroTask.innerHTML = available.length
     ? available.map((task) => `<option value="${task.id}">${escapeHtml(task.title)}</option>`).join("")
-    : `<option value="">暂无可执行任务</option>`;
+    : '<option value="">暂无可执行任务</option>';
+}
+
+function renderKanban() {
+  const groups = { todo: [], in_progress: [], done: [] };
+  state.tasks.forEach((task) => groups[task.status].push(task));
+  els.todoCount.textContent = groups.todo.length;
+  els.progressCount.textContent = groups.in_progress.length;
+  els.doneCount.textContent = groups.done.length;
+  els.todoColumn.innerHTML = renderTaskCards(groups.todo);
+  els.progressColumn.innerHTML = renderTaskCards(groups.in_progress);
+  els.doneColumn.innerHTML = renderTaskCards(groups.done);
+  renderPomodoroTasks();
+  setupDragAndDrop();
 }
 
 function renderStats() {
@@ -331,7 +519,7 @@ function renderStats() {
   const trend = stats.trend || [];
   if (!trend.length) {
     els.trendCaption.textContent = "暂无完成记录";
-    els.trendBars.innerHTML = `<p class="empty">完成任务后，这里会出现趋势柱状图。</p>`;
+    els.trendBars.innerHTML = '<p class="empty">完成任务后，这里会出现趋势柱状图。</p>';
   } else {
     const max = Math.max(...trend.map((item) => item.count), 1);
     els.trendCaption.textContent = `最近 ${trend.length} 个日期有完成记录`;
@@ -351,9 +539,43 @@ function renderStats() {
   els.reviewText.classList.toggle("empty", !els.reviewText.textContent);
 }
 
+function renderUserProfile() {
+  const profile = state.userProfile || {
+    summary: "还没有足够的历史执行数据。",
+    peak_period_label: "待观察",
+    suggested_focus_window: "待观察",
+    preferred_task_style_label: "待观察",
+    scheduling_discipline_label: "待观察",
+    period_breakdown: [],
+  };
+  els.traitSummary.textContent = profile.summary;
+  els.traitPeakPeriod.textContent = profile.peak_period_label;
+  els.traitFocusWindow.textContent = profile.suggested_focus_window;
+  els.traitTaskStyle.textContent = profile.preferred_task_style_label;
+  els.traitDiscipline.textContent = profile.scheduling_discipline_label;
+
+  if (!profile.period_breakdown?.length || profile.total_completed_sessions === 0) {
+    els.periodBreakdown.innerHTML =
+      '<p class="empty" style="display:block;font-size:14px;">开始记录番茄钟后，这里会识别你更擅长的时段。</p>';
+    return;
+  }
+
+  els.periodBreakdown.innerHTML = profile.period_breakdown
+    .map(
+      (item) => `
+      <article class="period-card">
+        <small>${escapeHtml(item.label)}</small>
+        <strong>${item.focus_minutes} 分钟专注</strong>
+        <div>${item.completed_sessions}/${item.total_sessions} 次完成，完成率 ${Math.round(item.completion_rate * 100)}%</div>
+      </article>
+    `
+    )
+    .join("");
+}
+
 function renderLogs() {
   if (!state.recentLogs.length) {
-    els.logList.innerHTML = `<p class="empty">还没有番茄钟记录，开始第一轮后会展示在这里。</p>`;
+    els.logList.innerHTML = '<p class="empty">还没有番茄钟记录，开始第一轮后会展示在这里。</p>';
     return;
   }
   els.logList.innerHTML = state.recentLogs
@@ -404,9 +626,11 @@ function renderTimer() {
 
 function renderAll() {
   renderAuth();
+  renderDiscussion();
   renderDraft();
   renderKanban();
   renderStats();
+  renderUserProfile();
   renderLogs();
   renderTimer();
   if (state.draftGoalText) els.goalText.value = state.draftGoalText;
@@ -528,6 +752,7 @@ async function bootstrap() {
     state.user = data.user;
     state.tasks = data.tasks;
     state.stats = data.stats;
+    state.userProfile = data.user_profile;
     state.recentLogs = data.recent_logs;
     state.providerPresets = { ...state.providerPresets, ...(data.provider_presets || {}) };
     renderAll();
@@ -554,6 +779,10 @@ async function submitAuth(mode) {
 }
 
 async function generateDraft() {
+  if (!state.user) {
+    setGoalFeedback("请先登录后再生成任务草案。");
+    return;
+  }
   const goalText = els.goalText.value.trim();
   if (!goalText) {
     setGoalFeedback("请先输入一个明确目标。");
@@ -561,16 +790,69 @@ async function generateDraft() {
   }
   state.aiSettings = getAiConfig();
   persistAiSettings();
+  setGoalFeedback("AI 正在生成首版草案...");
   const data = await api("/api/goals/analyze", {
     method: "POST",
     body: { goal_text: goalText, ai_config: state.aiSettings },
   });
+
   state.draftGoalText = goalText;
   state.draftFeedback = data.agent_feedback;
   state.draft = data.staging_tasks || [];
-  persistDraft();
+  state.draftConversation = data.agent_feedback ? [{ role: "assistant", content: data.agent_feedback }] : [];
+  state.draftVersion = state.draft.length ? 1 : 0;
+  state.draftVersionHistory = state.draft.length ? [createVersionEntry(1, data.agent_feedback, state.draft)] : [];
+  persistDraftWorkspace();
+
   const meta = data.provider && data.model ? `当前模型：${data.provider} / ${data.model}` : "";
   setGoalFeedback([data.agent_feedback, meta].filter(Boolean).join("\n"));
+  renderDiscussion();
+  renderDraft();
+}
+
+async function discussDraft(message = "", actions = []) {
+  if (!state.user || !state.draft.length) return;
+  const normalizedMessage = message.trim();
+  state.aiSettings = getAiConfig();
+  persistAiSettings();
+
+  const data = await api("/api/goals/discuss", {
+    method: "POST",
+    body: {
+      goal_text: state.draftGoalText,
+      current_plan: state.draft,
+      conversation: state.draftConversation,
+      user_message: normalizedMessage,
+      actions,
+      version: Math.max(state.draftVersion, 1),
+      ai_config: state.aiSettings,
+    },
+  });
+
+  const nextWorkspace = applyDiscussionResult(
+    {
+      draft: state.draft,
+      draftFeedback: state.draftFeedback,
+      draftConversation: state.draftConversation,
+      draftVersion: state.draftVersion,
+      draftVersionHistory: state.draftVersionHistory,
+    },
+    data,
+    {
+      message: normalizedMessage,
+      actions,
+      quickActionLabels,
+    }
+  );
+  state.draftConversation = nextWorkspace.draftConversation;
+  state.draftFeedback = nextWorkspace.draftFeedback;
+  state.draft = nextWorkspace.draft;
+  state.draftVersion = nextWorkspace.draftVersion;
+  state.draftVersionHistory = nextWorkspace.draftVersionHistory;
+  persistDraftWorkspace();
+  setGoalFeedback(`当前版本 v${data.version}\n${data.assistant_message}`);
+  els.discussionInput.value = "";
+  renderDiscussion();
   renderDraft();
 }
 
@@ -580,7 +862,7 @@ async function confirmDraft() {
     method: "POST",
     body: {
       goal_text: state.draftGoalText,
-      agent_feedback: state.draftFeedback,
+      agent_feedback: state.draftFeedback || "用户已确认多轮讨论后的最终草案",
       tasks: state.draft,
     },
   });
@@ -734,29 +1016,13 @@ function setupDragAndDrop() {
   });
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function toInputDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
-
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (target.classList.contains("task-input")) {
     const index = Number(target.dataset.index);
     const field = target.dataset.field;
     state.draft[index][field] = field === "estimated_minutes" ? Number(target.value) : target.value;
-    persistDraft();
+    persistDraftWorkspace();
   }
 });
 
@@ -767,6 +1033,13 @@ document.addEventListener("click", async (event) => {
   }
   if (target.dataset.action === "postpone") {
     await postponeTask(target.dataset.id);
+  }
+  if (target.dataset.quickAction) {
+    try {
+      await discussDraft("", [target.dataset.quickAction]);
+    } catch (error) {
+      setGoalFeedback(`${error.message}\n当前草案已保留。`);
+    }
   }
 });
 
@@ -810,6 +1083,15 @@ els.goalForm.addEventListener("submit", async (event) => {
   }
 });
 
+els.discussionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await discussDraft(els.discussionInput.value, []);
+  } catch (error) {
+    setGoalFeedback(`${error.message}\n当前草案已保留。`);
+  }
+});
+
 els.confirmDraft.addEventListener("click", async () => {
   try {
     await confirmDraft();
@@ -820,7 +1102,8 @@ els.confirmDraft.addEventListener("click", async () => {
 
 els.clearDraft.addEventListener("click", () => {
   clearDraftState();
-  setGoalFeedback("草案已清空。");
+  setGoalFeedback("草案与讨论历史已清空。");
+  renderDiscussion();
   renderDraft();
 });
 

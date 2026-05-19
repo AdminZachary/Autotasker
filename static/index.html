@@ -200,9 +200,100 @@ cursor: pointer; transition: all 200ms;
 /* === 各视图专属样式 === */
 
 /* Dashboard (Plan) */
-.dashboard-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; }
+.dashboard-grid { display: grid; grid-template-columns: 1fr 1.05fr 1.05fr; gap: 24px; align-items: start; }
 .hero-title { font-family: var(--font-dot); font-size: clamp(2.4rem, 4vw, 3.6rem); line-height: 1.1; margin: 0 0 8px 0; }
 .hero-subtitle { color: var(--muted); font-size: 16px; max-width: 80%; line-height: 1.5; margin-bottom: 24px; }
+
+.discussion-panel,
+.draft-panel,
+.goal-panel {
+display: flex;
+flex-direction: column;
+gap: 18px;
+min-height: 520px;
+}
+
+.discussion-list,
+.version-list,
+.period-grid {
+display: grid;
+gap: 12px;
+}
+
+.discussion-list {
+flex: 1;
+max-height: 420px;
+overflow-y: auto;
+padding-right: 4px;
+}
+
+.discussion-bubble {
+padding: 16px 18px;
+border-radius: 18px;
+border: 1px solid var(--line);
+background: rgba(255, 255, 255, 0.72);
+}
+
+.discussion-bubble.user {
+background: rgba(0, 0, 0, 0.04);
+}
+
+.discussion-bubble small,
+.version-item small,
+.period-card small,
+.trait-card small {
+display: block;
+margin-bottom: 8px;
+font-family: var(--font-mono);
+font-size: 10px;
+letter-spacing: 0.08em;
+text-transform: uppercase;
+color: var(--muted);
+}
+
+.discussion-actions {
+display: flex;
+flex-wrap: wrap;
+gap: 10px;
+}
+
+.discussion-actions .btn {
+padding: 9px 14px;
+font-size: 10px;
+}
+
+.discussion-input-wrap {
+display: grid;
+gap: 12px;
+}
+
+.version-badge {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+padding: 6px 12px;
+border-radius: 999px;
+background: rgba(0, 0, 0, 0.05);
+font-family: var(--font-mono);
+font-size: 11px;
+color: var(--muted);
+}
+
+.version-item,
+.trait-card,
+.period-card {
+padding: 16px;
+border-radius: var(--radius-sm);
+border: 1px solid var(--line);
+background: rgba(255, 255, 255, 0.58);
+}
+
+.version-item strong,
+.trait-card strong,
+.period-card strong {
+display: block;
+font-size: 15px;
+}
 
 .stats-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .metric { background: rgba(255,255,255,0.5); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--line); }
@@ -218,6 +309,19 @@ cursor: pointer; transition: all 200ms;
 .draft-list { display: grid; gap: 16px; }
 .draft-card { background: rgba(255,255,255,0.6); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--line); }
 .draft-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+.insights-grid {
+display: grid;
+grid-template-columns: 1.2fr 1fr;
+gap: 24px;
+}
+
+.trait-strip {
+display: grid;
+grid-template-columns: repeat(2, minmax(0, 1fr));
+gap: 16px;
+margin-top: 18px;
+}
 
 /* Kanban (Board) */
 /* 修复：将原本挂在 .view 上的 flex 剥离，确保 .view 能够绝对隐藏 */
@@ -258,7 +362,7 @@ cursor: pointer; transition: all 200ms;
 .nav-item { padding: 8px 16px; }
 .nav-item span { display: none; }
 .nav-item.active::after { left: 50%; bottom: -4px; top: auto; width: 16px; height: 4px; border-radius: 4px 4px 0 0; transform: translateX(-50%); }
-.dashboard-grid, .focus-grid, .settings-grid { grid-template-columns: 1fr; }
+.dashboard-grid, .focus-grid, .settings-grid, .insights-grid, .trait-strip { grid-template-columns: 1fr; }
 .kanban-board { display: flex; flex-direction: column; gap: 16px; }
 .kanban-column { min-height: 300px; }
 .kanban-wrapper { height: auto; padding-bottom: 80px; }
@@ -278,6 +382,10 @@ cursor: pointer; transition: all 200ms;
 <button class="nav-item active" data-view="dashboard">
 <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
 <span>Plan</span>
+</button>
+<button class="nav-item" data-view="insights">
+<svg viewBox="0 0 24 24"><path d="M4 19h16"></path><path d="M7 16V8"></path><path d="M12 16V5"></path><path d="M17 16v-4"></path></svg>
+<span>Traits</span>
 </button>
 <button class="nav-item" data-view="kanban">
 <svg viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"></path><path d="M19 3h-4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"></path></svg>
@@ -308,8 +416,7 @@ cursor: pointer; transition: all 200ms;
 </div>
 
 <div class="dashboard-grid">
-<div style="display: flex; flex-direction: column; gap: 24px;">
-<section class="glass">
+<section class="glass goal-panel">
 <div class="section-head">
 <span class="tag">AI Engine</span>
 <h2>构建目标</h2>
@@ -324,13 +431,41 @@ cursor: pointer; transition: all 200ms;
 <p id="goal-feedback" class="feedback empty"></p>
 </section>
 
-<section class="glass">
+<section class="glass discussion-panel">
 <div class="section-head">
-<span class="tag">Buffer</span>
-<h2>草案确认区</h2>
+<span class="tag">Discussion</span>
+<h2>多轮讨论区</h2>
+<span class="version-badge" id="discussion-version">v0</span>
+</div>
+<div class="discussion-actions">
+<button type="button" class="btn btn-secondary" data-quick-action="split_tasks">拆小任务</button>
+<button type="button" class="btn btn-secondary" data-quick-action="compress_schedule">压缩周期</button>
+<button type="button" class="btn btn-secondary" data-quick-action="delay_one_day">推迟一天</button>
+<button type="button" class="btn btn-secondary" data-quick-action="avoid_quiet_hours">避开安静时段</button>
+<button type="button" class="btn btn-secondary" data-quick-action="raise_priority">提高优先级</button>
+</div>
+<div id="discussion-list" class="discussion-list">
+<p class="empty" style="display:block;font-size: 14px;">生成首版草案后，你可以继续像聊天一样让 AI 重排、拆分、压缩或解释安排。</p>
+</div>
+<form id="discussion-form" class="discussion-input-wrap">
+<label>
+<span>Discussion Message</span>
+<textarea id="discussion-input" rows="4" placeholder="例如：把最重要的任务都移到上午，把研究和整理分开。"></textarea>
+</label>
+<button type="submit" class="btn btn-primary">Send Revision</button>
+</form>
+</section>
+
+<section class="glass draft-panel">
+<div class="section-head">
+<span class="tag">Current Draft</span>
+<h2>当前草案版本</h2>
+</div>
+<div id="version-history" class="version-list">
+<p class="empty" style="display:block;font-size:14px;">讨论版本历史会显示在这里。</p>
 </div>
 <div id="draft-list" class="draft-list">
-<p class="empty" style="font-size: 14px;">生成草案后，可在此微调任务与时间安排。</p>
+<p class="empty" style="display:block;font-size: 14px;">生成草案后，可在此微调任务与时间安排。</p>
 </div>
 <div class="form-actions" style="margin-top:20px;">
 <button id="confirm-draft" class="btn btn-primary" disabled>Sync to Board</button>
@@ -338,9 +473,52 @@ cursor: pointer; transition: all 200ms;
 </div>
 </section>
 </div>
+</div>
 
-<div style="display: flex; flex-direction: column; gap: 24px;">
+<!-- View 1.5: Traits / Insights -->
+<div id="view-insights" class="view">
+<div class="insights-grid">
 <section class="glass">
+<div class="section-head">
+<span class="tag">Behavior Memory</span>
+<h2>用户特征画像</h2>
+</div>
+<div class="trait-card">
+<small>Summary</small>
+<strong id="trait-summary">还没有足够的历史执行数据。</strong>
+</div>
+<div class="trait-strip">
+<article class="trait-card">
+<small>Peak Period</small>
+<strong id="trait-peak-period">待观察</strong>
+</article>
+<article class="trait-card">
+<small>Suggested Window</small>
+<strong id="trait-focus-window">待观察</strong>
+</article>
+<article class="trait-card">
+<small>Task Style</small>
+<strong id="trait-task-style">待观察</strong>
+</article>
+<article class="trait-card">
+<small>Discipline</small>
+<strong id="trait-discipline">待观察</strong>
+</article>
+</div>
+</section>
+
+<section class="glass">
+<div class="section-head">
+<span class="tag">Evidence</span>
+<h2>时段效率分布</h2>
+</div>
+<div id="period-breakdown" class="period-grid">
+<p class="empty" style="display:block;font-size:14px;">开始记录番茄钟后，这里会识别你更擅长的时段。</p>
+</div>
+</section>
+</div>
+
+<section class="glass" style="margin-top:24px;">
 <div class="section-head">
 <span class="tag">Analytics</span>
 <h2>执行复盘</h2>
@@ -363,8 +541,6 @@ cursor: pointer; transition: all 200ms;
 </div>
 <p id="review-text" class="review empty"></p>
 </section>
-</div>
-</div>
 </div>
 
 <!-- View 2: Kanban (Board) -->
@@ -524,6 +700,7 @@ cursor: pointer; transition: all 200ms;
 </main>
 
 <!-- 交互逻辑 -->
-<script src="/app.js" defer></script>
+<script src="/static/state-helpers.js" defer></script>
+<script src="/static/app.js" defer></script>
 </body>
 </html>

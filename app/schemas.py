@@ -64,6 +64,57 @@ class GoalPlanSchema(BaseModel):
     staging_tasks: list[StageTaskSchema] = Field(default_factory=list)
 
 
+class DraftConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class GoalDiscussRequest(BaseModel):
+    goal_text: str = Field(min_length=1, max_length=4000)
+    current_plan: list[StageTaskSchema] = Field(min_length=1)
+    conversation: list[DraftConversationMessage] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list, max_length=6)
+    user_message: str = Field(default="", max_length=4000)
+    version: int = Field(default=1, ge=1, le=200)
+    ai_config: AIConfig
+
+    @field_validator("actions")
+    @classmethod
+    def validate_actions(cls, value: list[str]) -> list[str]:
+        allowed = {
+            "split_tasks",
+            "compress_schedule",
+            "delay_one_day",
+            "avoid_quiet_hours",
+            "raise_priority",
+        }
+        invalid = [item for item in value if item not in allowed]
+        if invalid:
+            raise ValueError(f"不支持的快捷动作: {', '.join(invalid)}")
+        return value
+
+    @field_validator("user_message")
+    @classmethod
+    def ensure_message_or_actions(cls, value: str, info):
+        actions = info.data.get("actions", [])
+        if not value.strip() and not actions:
+            raise ValueError("至少提供一条讨论消息或一个快捷动作")
+        return value
+
+
+class GoalDiscussionSchema(BaseModel):
+    assistant_message: str = Field(min_length=1, max_length=1200)
+    updated_plan: list[StageTaskSchema] = Field(min_length=1)
+
+
+class GoalDiscussResponse(BaseModel):
+    assistant_message: str
+    updated_plan: list[StageTaskSchema]
+    version: int
+    provider: str
+    model: str
+
+
 class GoalConfirmRequest(BaseModel):
     goal_text: str = Field(min_length=1, max_length=4000)
     agent_feedback: str = Field(min_length=1, max_length=800)
@@ -142,6 +193,29 @@ class StatsOut(BaseModel):
     review: str
 
 
+class UserPeriodProfileOut(BaseModel):
+    key: str
+    label: str
+    focus_minutes: int
+    completed_sessions: int
+    total_sessions: int
+    completion_rate: float
+
+
+class UserProfileOut(BaseModel):
+    peak_period: str
+    peak_period_label: str
+    preferred_task_style: str
+    preferred_task_style_label: str
+    scheduling_discipline: str
+    scheduling_discipline_label: str
+    suggested_focus_window: str
+    summary: str
+    total_focus_minutes: int
+    total_completed_sessions: int
+    period_breakdown: list[UserPeriodProfileOut]
+
+
 class RecentLogOut(BaseModel):
     id: int
     task_id: int
@@ -157,6 +231,7 @@ class BootstrapResponse(BaseModel):
     user: UserOut
     tasks: list[TaskOut]
     stats: StatsOut
+    user_profile: UserProfileOut
     recent_logs: list[RecentLogOut]
     provider_presets: dict[str, str]
 

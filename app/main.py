@@ -35,3 +35,8 @@ def styles():
 @app.get("/app.js", include_in_schema=False)
 def app_js():
     return FileResponse(ROOT_DIR / "static" / "app.js")
+
+
+@app.get("/state-helpers.js", include_in_schema=False)
+def state_helpers_js():
+    return FileResponse(ROOT_DIR / "static" / "state-helpers.js")

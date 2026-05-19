@@ -1,9 +1,18 @@
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import PomodoroLog, Task
+
+
+PERIOD_LABELS = {
+    "morning": "上午高效",
+    "afternoon": "下午稳定",
+    "evening": "晚上高效",
+    "night": "深夜灵感",
+}
 
 
 def normalize_dt(value):
@@ -99,3 +108,102 @@ def get_stats(db: Session, user_id: int) -> dict:
     }
     stats["review"] = build_local_review(stats)
     return stats
+
+
+def get_period_key(dt: Optional[datetime]) -> str:
+    dt = normalize_dt(dt)
+    hour = dt.hour if dt else 9
+    if 6 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 18:
+        return "afternoon"
+    if 18 <= hour < 24:
+        return "evening"
+    return "night"
+
+
+def infer_task_style(avg_focus_minutes: float) -> tuple[str, str]:
+    if avg_focus_minutes >= 50:
+        return "deep_work", "更适合 50 分钟以上的深度专注块"
+    if avg_focus_minutes >= 30:
+        return "balanced", "适合 30-50 分钟的均衡节奏"
+    return "short_sprint", "更适合 15-30 分钟的短冲刺"
+
+
+def infer_discipline(delay_total: int, task_count: int) -> tuple[str, str]:
+    if task_count <= 0:
+        return "unknown", "还没有足够的执行数据"
+    ratio = delay_total / max(task_count, 1)
+    if ratio >= 1.2:
+        return "needs_buffer", "排程容易偏紧，建议预留缓冲"
+    if ratio >= 0.5:
+        return "adaptive", "会根据现实节奏调整计划"
+    return "steady", "计划执行相对稳定"
+
+
+def build_user_profile_summary(profile: dict) -> str:
+    return (
+        f"用户通常在{profile['peak_period_label']}，建议优先安排高价值任务在{profile['suggested_focus_window']}。"
+        f"{profile['preferred_task_style_label']}，当前执行纪律判断为：{profile['scheduling_discipline_label']}。"
+    )
+
+
+def get_user_profile(db: Session, user_id: int) -> dict:
+    logs = db.scalars(
+        select(PomodoroLog).where(PomodoroLog.user_id == user_id).order_by(PomodoroLog.start_time.desc()).limit(200)
+    ).all()
+    tasks = db.scalars(select(Task).where(Task.user_id == user_id)).all()
+
+    period_stats = {
+        key: {
+            "key": key,
+            "label": PERIOD_LABELS[key],
+            "focus_minutes": 0,
+            "completed_sessions": 0,
+            "total_sessions": 0,
+            "completion_rate": 0.0,
+        }
+        for key in PERIOD_LABELS
+    }
+
+    total_focus_minutes = 0
+    completed_sessions = 0
+    for log in logs:
+        key = get_period_key(log.start_time)
+        minutes = int((log.actual_seconds or 0) / 60)
+        period_stats[key]["focus_minutes"] += minutes
+        period_stats[key]["total_sessions"] += 1
+        total_focus_minutes += minutes
+        if log.status == "done":
+            period_stats[key]["completed_sessions"] += 1
+            completed_sessions += 1
+
+    for stats in period_stats.values():
+        total = stats["total_sessions"]
+        done = stats["completed_sessions"]
+        stats["completion_rate"] = round(done / total, 2) if total else 0.0
+
+    ordered_periods = list(period_stats.values())
+    peak_period = max(
+        ordered_periods,
+        key=lambda item: (item["focus_minutes"], item["completed_sessions"], item["completion_rate"]),
+    )
+
+    avg_focus_minutes = total_focus_minutes / max(len(logs), 1) if logs else 0
+    preferred_task_style, preferred_task_style_label = infer_task_style(avg_focus_minutes)
+    delay_total = sum(task.delay_count for task in tasks)
+    scheduling_discipline, scheduling_discipline_label = infer_discipline(delay_total, len(tasks))
+    profile = {
+        "peak_period": peak_period["key"],
+        "peak_period_label": peak_period["label"],
+        "preferred_task_style": preferred_task_style,
+        "preferred_task_style_label": preferred_task_style_label,
+        "scheduling_discipline": scheduling_discipline,
+        "scheduling_discipline_label": scheduling_discipline_label,
+        "suggested_focus_window": peak_period["label"],
+        "total_focus_minutes": total_focus_minutes,
+        "total_completed_sessions": completed_sessions,
+        "period_breakdown": ordered_periods,
+    }
+    profile["summary"] = build_user_profile_summary(profile)
+    return profile
